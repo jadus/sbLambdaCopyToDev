@@ -6,36 +6,36 @@ const S3 = new AWS.S3({
 });
 const Sharp = require('sharp');
 
-const BUCKET = process.env.BUCKET;
-const URL = process.env.URL;
 
 const widths = [400, 800];
 
-exports.handler = function(event, context, callback) {
-  const key = event.queryStringParameters.key;
-  const match = key.match(/(\d+)\/(.*)/);
-  const width = parseInt(match[1], 10);
-  const originalKey = match[2];
-  if(widths.indexOf(width) >= 0 && originalKey.substring(0, 13) == 'bouldersPics/'){
-      S3.getObject({Bucket: BUCKET, Key: originalKey}).promise()
-          .then(data => Sharp(data.Body)
-              .resize(width)
-              .toFormat('jpeg')
-              .toBuffer()
-          )
-          .then(buffer => S3.putObject({
-                  Body: buffer,
-                  Bucket: BUCKET,
-                  ContentType: 'image/jpeg',
-                  Key: key,
-              }).promise()
-          )
-          .then(() => callback(null, {
-                  statusCode: '301',
-                  headers: {'location': `${URL}/${key}`},
-                  body: '',
-              })
-          )
-          .catch(err => callback(err))
-  }
+const promises = [];
+
+exports.handler = function(event, context) {
+    const key = event.Records[0].s3.object.key;
+    const bucket = event.Records[0].s3.bucket.name;
+    if(key.substring(0, 13) == 'bouldersPics/') {
+
+        widths.forEach((width) => {
+            promises.push(
+                S3.getObject({Bucket: bucket, Key: key}).promise()
+                    .then(data => Sharp(data.Body)
+                        .resize(width)
+                        .toFormat('jpeg')
+                        .toBuffer()
+                    )
+                    .then(buffer => S3.putObject({
+                            Body: buffer,
+                            Bucket: bucket,
+                            ContentType: 'image/jpeg',
+                            Key: width.toString()+'/'+key,
+                        }).promise()
+                    )
+                    .catch(err => callback(err))
+            )
+
+        })
+
+        Promise.all(promises).then(()  => context.done());
+    }
 }
